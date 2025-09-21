@@ -1,0 +1,134 @@
+"use client"
+
+import { useState, useCallback, useEffect } from "react"
+import { StarkNetService, type StarkNetWallet, type DepositParams, type WithdrawParams } from "@/lib/starknet"
+
+export function useStarkNet() {
+  const [starknetService] = useState(() => new StarkNetService(true)) // Use testnet
+  const [wallet, setWallet] = useState<StarkNetWallet | null>(null)
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [isTransacting, setIsTransacting] = useState(false)
+  const [balance, setBalance] = useState<string>("0")
+
+  const connectWallet = useCallback(async () => {
+    setIsConnecting(true)
+    try {
+      const connectedWallet = await starknetService.connectWallet()
+      setWallet(connectedWallet)
+
+      // Get initial balance
+      const walletBalance = await starknetService.getBalance(connectedWallet.address)
+      setBalance(walletBalance)
+
+      return connectedWallet
+    } catch (error) {
+      console.error("Failed to connect wallet:", error)
+      throw error
+    } finally {
+      setIsConnecting(false)
+    }
+  }, [starknetService])
+
+  const disconnectWallet = useCallback(() => {
+    starknetService.disconnect()
+    setWallet(null)
+    setBalance("0")
+  }, [starknetService])
+
+  const deposit = useCallback(
+    async (params: DepositParams): Promise<string> => {
+      if (!wallet) {
+        throw new Error("Wallet not connected")
+      }
+
+      setIsTransacting(true)
+      try {
+        const txHash = await starknetService.deposit(params)
+
+        // Update balance after successful deposit
+        const newBalance = await starknetService.getBalance(wallet.address)
+        setBalance(newBalance)
+
+        return txHash
+      } catch (error) {
+        console.error("Deposit failed:", error)
+        throw error
+      } finally {
+        setIsTransacting(false)
+      }
+    },
+    [starknetService, wallet],
+  )
+
+  const withdraw = useCallback(
+    async (params: WithdrawParams): Promise<string> => {
+      if (!wallet) {
+        throw new Error("Wallet not connected")
+      }
+
+      setIsTransacting(true)
+      try {
+        const txHash = await starknetService.withdraw(params)
+
+        // Update balance after successful withdrawal
+        const newBalance = await starknetService.getBalance(wallet.address)
+        setBalance(newBalance)
+
+        return txHash
+      } catch (error) {
+        console.error("Withdrawal failed:", error)
+        throw error
+      } finally {
+        setIsTransacting(false)
+      }
+    },
+    [starknetService, wallet],
+  )
+
+  const getCommitmentStatus = useCallback(
+    async (commitment: string) => {
+      return await starknetService.getCommitmentStatus(commitment)
+    },
+    [starknetService],
+  )
+
+  const getTransaction = useCallback(
+    async (txHash: string) => {
+      return await starknetService.getTransaction(txHash)
+    },
+    [starknetService],
+  )
+
+  const refreshBalance = useCallback(async () => {
+    if (!wallet) return
+
+    try {
+      const newBalance = await starknetService.getBalance(wallet.address)
+      setBalance(newBalance)
+    } catch (error) {
+      console.error("Failed to refresh balance:", error)
+    }
+  }, [starknetService, wallet])
+
+  // Auto-refresh balance every 30 seconds when wallet is connected
+  useEffect(() => {
+    if (!wallet) return
+
+    const interval = setInterval(refreshBalance, 30000)
+    return () => clearInterval(interval)
+  }, [wallet, refreshBalance])
+
+  return {
+    wallet,
+    balance,
+    isConnecting,
+    isTransacting,
+    connectWallet,
+    disconnectWallet,
+    deposit,
+    withdraw,
+    getCommitmentStatus,
+    getTransaction,
+    refreshBalance,
+  }
+}
